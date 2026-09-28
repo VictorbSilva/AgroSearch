@@ -3,10 +3,12 @@
 Uso: python gerar_relatorio.py
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agrosearch_app import (
     DOCUMENTOS,
+    TAMANHO_MINIMO,
     indice_invertido,
     preprocessar,
     ranquear,
@@ -61,9 +63,9 @@ Termos após o pipeline: {", ".join(r["termos"])} ("da" é stopword). {idfs}.
 
 Vencedor: **Doc {r['linhas'][0]['doc']}**, único que tem os dois termos e o mais curto entre os que citam irrigação.
 
-## 5. Testes
+## 5. Importação de arquivos
 
-Testes automatizados (pytest) conferem cada etapa do pipeline, o índice invertido, as fórmulas de TF, IDF e TF-IDF calculadas à mão, a ordenação do ranking, a ausência de bibliotecas de alto nível e a interface (abas, checkboxes, índice em `st.json`, vencedor em destaque) com `streamlit.testing.AppTest`.
+A base pode ser ampliada ou substituída pela barra lateral com manuais em .txt, .md, .csv ou .pdf. Cada parágrafo vira um documento: num .txt sem linhas em branco, cada linha; no CSV, a coluna “texto”; no PDF, os parágrafos de cada página. Repetições e trechos com menos de {TAMANHO_MINIMO} caracteres são ignorados, e cada documento guarda a origem (arquivo e página ou linha). A leitura usa `csv`, `io` e `pypdf` só para extrair o texto: o índice invertido e o TF-IDF continuam calculados do zero sobre a nova base, com N igual ao número de documentos.
 
 ## 6. Divisão de tarefas
 
@@ -72,14 +74,14 @@ Testes automatizados (pytest) conferem cada etapa do pipeline, o índice inverti
 | Pipeline de pré-processamento e stemmer | Victor |
 | Índice invertido e TF-IDF | Victor |
 | Interface Streamlit | Victor |
-| Testes e relatório | Victor |
+| Importação de arquivos e relatório | Victor |
 """
 
 
 def main() -> int:
     md = PASTA / "RELATORIO.md"
     md.write_text(montar_markdown(), encoding="utf-8")
-    paginas = gerar_pdf(md, PASTA / "relatorio.pdf")
+    paginas = gerar_pdf(md, PASTA / "relatorio.pdf", data=datetime(2026, 9, 28, tzinfo=timezone.utc))
     print(f"relatorio.pdf gerado com {paginas} página(s)")
     return paginas
 

@@ -27,6 +27,24 @@ Exemplos com consultas de várias palavras:
 | irrigação por gotejamento na soja | Doc 5 | 0,441 |
 | irrigação da soja | Doc 1 | 0,257 |
 
+## Importação de arquivos
+
+A base não precisa ficar presa às 5 frases do exemplo. Na barra lateral, **📂 Importar documentos** aceita um ou vários manuais em `.txt`, `.md`, `.csv` ou `.pdf`:
+
+| Formato | Como vira documento |
+|---|---|
+| `.txt`, `.md` | Cada parágrafo (bloco separado por linha em branco). Sem linhas em branco, cada linha, como a base sugerida. |
+| `.csv` | Cada linha da coluna `texto` (ou `conteudo`, `trecho`, `documento`, `text`, `content`), separada por vírgula, ponto e vírgula ou tab. Um CSV de uma coluna só é lido inteiro. |
+| `.pdf` | Os parágrafos de cada página (texto extraído com `pypdf`). Como o PDF raramente marca parágrafos com linha em branco, uma linha bem mais curta que as outras (a última do parágrafo) fecha o parágrafo. |
+
+- **Adicionar à base** acrescenta os trechos depois do maior ID atual. **Substituir a base** recomeça a numeração em 1.
+- **↩️ Base original** volta aos 5 documentos sugeridos.
+- Trechos repetidos e trechos com menos de 40 caracteres (títulos soltos, números de página) são ignorados.
+- Cada documento guarda a origem (arquivo e página ou linha), mostrada na base, no pipeline e no documento vencedor.
+- Um arquivo que não pode ser lido (formato não aceito, CSV sem coluna de texto, PDF escaneado) aparece com o motivo na barra lateral, e a base não muda.
+
+Pipeline, índice invertido, TF-IDF e ranking por cosseno passam a rodar sobre a base importada, com N igual ao número de documentos. A leitura dos arquivos usa `csv` e `io`, da biblioteca padrão, e `pypdf`, só para extrair o texto. O índice e as fórmulas continuam implementados do zero, como o desafio exige.
+
 ## Como rodar
 
 ```bash

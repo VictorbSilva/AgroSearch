@@ -9,7 +9,9 @@ Protótipo de busca textual para os manuais técnicos da AgroTech Solutions. O t
 | [`a02/`](a02/) | Desafio principal | App Streamlit num único arquivo (`agrosearch_app.py`) com as 3 fases: pipeline de pré-processamento com checkboxes de stopwords e stemming, índice invertido e ranking por TF-IDF acumulado. Inclui o relatório técnico `relatorio.pdf` (2 páginas). |
 | [`a03/`](a03/) | Desafio bônus | O mesmo app com uma 4ª aba que ranqueia os documentos pela similaridade de cosseno entre o vetor TF-IDF da consulta e o de cada documento. |
 
-Cada pasta é independente e tem o próprio `README.md` (enunciado, como rodar e suposições) e `requirements.txt`. As duas entregas foram aprovadas numa auditoria independente antes da publicação.
+**Importação de arquivos:** nas duas pastas, a barra lateral importa manuais em `.txt`, `.md`, `.csv` ou `.pdf` e amplia ou substitui a base de 5 documentos do exemplo. Cada parágrafo vira um documento com a origem (arquivo e página). Pipeline, índice invertido, TF-IDF e cosseno passam a rodar sobre os manuais importados, sempre implementados do zero.
+
+Cada pasta é independente e tem o próprio `README.md` (enunciado, como rodar e suposições) e `requirements.txt`.
 
 ## Como rodar
 

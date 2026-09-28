@@ -12,6 +12,10 @@ Restrição do desafio: nada de scikit-learn/TfidfVectorizer ou biblioteca de al
 o índice invertido, o TF-IDF, os vetores, o cosseno e o stemmer são implementados aqui,
 só com a biblioteca padrão.
 
+Importação: a barra lateral aceita manuais em .txt, .md, .csv e .pdf; cada parágrafo vira um documento
+e a base importada substitui ou amplia os 5 documentos sugeridos. A leitura dos arquivos usa csv/io
+(biblioteca padrão) e pypdf, só para extrair o texto.
+
 Rodar:  streamlit run agrosearch_app.py
 """
 
@@ -184,6 +188,141 @@ def ranquear_cosseno(consulta: str, documentos: dict, usar_stopwords: bool = Tru
     return {"vetor_consulta": vetor_q, "linhas": linhas}
 
 
+# ----------------------------------------------------------------------------- importação de arquivos
+# Ler os arquivos usa a biblioteca padrão (csv, io) e o pypdf, só para extrair o texto. O índice invertido
+# e o TF-IDF continuam calculados do zero, agora sobre os trechos importados.
+TIPOS_ACEITOS = ["txt", "md", "csv", "pdf"]
+TAMANHO_MINIMO = 40  # trechos mais curtos (títulos soltos, números de página) não viram documento
+COLUNAS_TEXTO = {"texto", "conteudo", "trecho", "documento", "text", "content"}
+ORIGEM_PADRAO = "base sugerida (seção 5)"
+
+
+def decodificar(conteudo: bytes) -> str:
+    """UTF-8 (com ou sem BOM); se falhar, Latin-1, comum em arquivos salvos no Windows."""
+    try:
+        return conteudo.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return conteudo.decode("latin-1")
+
+
+def paragrafos_por_linha_curta(linhas: list[str]) -> list[str]:
+    """Junta em parágrafos as linhas de um texto sem linhas em branco, como o extraído de um PDF.
+
+    A última linha de um parágrafo não chega à margem: uma linha com menos de 80% da maior largura fecha
+    o parágrafo (e separa os títulos, que depois caem pelo tamanho mínimo).
+    """
+    linhas = [re.sub(r"\s+", " ", linha).strip() for linha in linhas if linha.strip()]
+    largura = max((len(linha) for linha in linhas), default=0)
+    paragrafos, atual = [], []
+    for linha in linhas:
+        atual.append(linha)
+        if len(linha) < 0.8 * largura:
+            paragrafos.append(" ".join(atual))
+            atual = []
+    return paragrafos + ([" ".join(atual)] if atual else [])
+
+
+def dividir_em_trechos(texto: str, linha_por_trecho: bool = True) -> list[str]:
+    """Um trecho por parágrafo (blocos separados por linha em branco).
+
+    Sem linhas em branco: com linha_por_trecho=True, cada linha vira um trecho, como na base sugerida
+    (uma frase por documento); com False (PDF), os parágrafos saem de paragrafos_por_linha_curta.
+    Quebras de linha dentro de um parágrafo viram espaço, e trechos com menos de TAMANHO_MINIMO
+    caracteres são descartados.
+    """
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    blocos = [b for b in re.split(r"\n\s*\n", texto) if b.strip()]
+    if len(blocos) == 1:
+        linhas = blocos[0].split("\n")
+        blocos = linhas if linha_por_trecho else paragrafos_por_linha_curta(linhas)
+    trechos = [re.sub(r"\s+", " ", b).strip() for b in blocos]
+    return [t for t in trechos if len(t) >= TAMANHO_MINIMO]
+
+
+def ler_csv(texto: str) -> list[tuple[int, str]]:
+    """(número da linha, texto) da coluna de conteúdo do CSV, separado por vírgula, ponto e vírgula ou tab.
+
+    A coluna é a que tiver cabeçalho texto, conteúdo, trecho, documento, text ou content. Um CSV de uma
+    coluna só, sem esse cabeçalho, é lido inteiro, uma linha por documento.
+    """
+    import csv
+    import io
+
+    try:
+        dialeto = csv.Sniffer().sniff(texto[:2048], delimiters=",;\t")
+    except csv.Error:
+        dialeto = csv.excel
+    linhas = [linha for linha in csv.reader(io.StringIO(texto), dialeto)]
+    if not linhas:
+        return []
+    cabecalho = [normalizar([c.strip()])[0] if c.strip() else "" for c in linhas[0]]
+    coluna = next((i for i, nome in enumerate(cabecalho) if nome in COLUNAS_TEXTO), None)
+    inicio = 1
+    if coluna is None:
+        if max(len(linha) for linha in linhas) > 1:
+            raise ValueError("o CSV tem várias colunas e nenhuma se chama texto, conteudo ou trecho")
+        coluna, inicio = 0, 0
+    return [(n, re.sub(r"\s+", " ", linha[coluna]).strip()) for n, linha in enumerate(linhas[inicio:], inicio + 1)
+            if len(linha) > coluna and len(linha[coluna].strip()) >= TAMANHO_MINIMO]
+
+
+def ler_pdf(conteudo: bytes) -> list[tuple[int, str]]:
+    """(página, texto) de cada página do PDF, na ordem."""
+    import io
+
+    from pypdf import PdfReader
+
+    return [(n, pagina.extract_text() or "") for n, pagina in enumerate(PdfReader(io.BytesIO(conteudo)).pages, 1)]
+
+
+def extrair_trechos(nome: str, conteudo: bytes) -> list[tuple[str, str]]:
+    """Lê um arquivo importado e devolve os trechos que viram documentos, cada um com a sua origem."""
+    extensao = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+    if extensao in ("txt", "md"):
+        return [(nome, t) for t in dividir_em_trechos(decodificar(conteudo))]
+    if extensao == "csv":
+        return [(f"{nome}, linha {n}", t) for n, t in ler_csv(decodificar(conteudo))]
+    if extensao == "pdf":
+        return [(f"{nome}, p. {n}", t) for n, texto in ler_pdf(conteudo) for t in dividir_em_trechos(texto, linha_por_trecho=False)]
+    raise ValueError(f"formato .{extensao or '?'} não aceito (use {', '.join('.' + t for t in TIPOS_ACEITOS)})")
+
+
+def importar(arquivos: list[tuple[str, bytes]], base: dict[int, str], origens: dict[int, str],
+             substituir: bool = False) -> tuple[dict[int, str], dict[int, str], list[tuple[str, int, str]]]:
+    """Acrescenta à base (ou põe no lugar dela) os trechos dos arquivos: devolve (base, origens, relatório).
+
+    Os IDs continuam inteiros e sequenciais: a partir de 1 ao substituir, ou depois do maior ID atual ao
+    adicionar. Trechos repetidos (já na base ou no mesmo lote) são ignorados. O relatório traz, por arquivo,
+    quantos trechos entraram ou o motivo da recusa. Se a base ficaria vazia, nada muda.
+    """
+    nova_base = {} if substituir else dict(base)
+    novas_origens = {} if substituir else dict(origens)
+    vistos = set(nova_base.values())
+    proximo = max(nova_base, default=0) + 1
+    relatorio = []
+    for nome, conteudo in arquivos:
+        try:
+            trechos = extrair_trechos(nome, conteudo)
+        except Exception as erro:  # formato não aceito, CSV sem coluna de texto, PDF corrompido…
+            relatorio.append((nome, 0, f"não foi possível ler ({erro})"))
+            continue
+        novos = 0
+        for origem, trecho in trechos:
+            if trecho not in vistos:
+                vistos.add(trecho)
+                nova_base[proximo], novas_origens[proximo] = trecho, origem
+                proximo += 1
+                novos += 1
+        relatorio.append((nome, novos, "" if novos else "nenhum trecho novo com texto (arquivo vazio, PDF escaneado ou só repetições)"))
+    if not nova_base:
+        return dict(base), dict(origens), relatorio
+    return nova_base, novas_origens, relatorio
+
+
+def resumir(texto: str, limite: int = 300) -> str:
+    return texto if len(texto) <= limite else texto[:limite].rsplit(" ", 1)[0] + "…"
+
+
 # ----------------------------------------------------------------------------- interface
 def main():
     import pandas as pd
@@ -198,36 +337,65 @@ def main():
     usar_stopwords = st.sidebar.checkbox("Remover stopwords", value=True, key="stopwords")
     usar_stemming = st.sidebar.checkbox("Aplicar stemming", value=True, key="stemming")
 
-    with st.expander("📚 Base de documentos"):
-        st.dataframe(pd.DataFrame({"ID": list(DOCUMENTOS), "Texto": list(DOCUMENTOS.values())}), hide_index=True)
+    st.sidebar.header("📂 Importar documentos")
+    if "base" not in st.session_state:
+        st.session_state["base"] = dict(DOCUMENTOS)
+        st.session_state["origens"] = {d: ORIGEM_PADRAO for d in DOCUMENTOS}
+    arquivos = st.sidebar.file_uploader(
+        "Manuais em .txt, .md, .csv ou .pdf", type=TIPOS_ACEITOS, accept_multiple_files=True, key="arquivos",
+        help="Cada parágrafo vira um documento (num .txt sem linhas em branco, cada linha). No CSV, a coluna "
+             "“texto”; no PDF, os parágrafos de cada página.")
+    modo = st.sidebar.radio("Ao importar", ["Adicionar à base", "Substituir a base"], key="modo_importacao")
+    col_importar, col_restaurar = st.sidebar.columns(2)
+    if col_importar.button("📥 Importar", key="importar", disabled=not arquivos, width="stretch"):
+        base, origens, relatorio = importar([(a.name, a.getvalue()) for a in arquivos], st.session_state["base"],
+                                            st.session_state["origens"], substituir=modo == "Substituir a base")
+        st.session_state.update(base=base, origens=origens, relatorio_importacao=relatorio)
+    if col_restaurar.button("↩️ Base original", key="restaurar", width="stretch"):
+        st.session_state.update(base=dict(DOCUMENTOS), origens={d: ORIGEM_PADRAO for d in DOCUMENTOS},
+                                relatorio_importacao=[])
+    for nome, novos, motivo in st.session_state.get("relatorio_importacao", []):
+        if novos:
+            st.sidebar.success(f"{nome}: {novos} trecho(s) importado(s).")
+        else:
+            st.sidebar.error(f"{nome}: {motivo}.")
+    documentos, origens = st.session_state["base"], st.session_state["origens"]
+    st.sidebar.caption(f"Base atual: **{len(documentos)} documentos** "
+                       f"({sum(o != ORIGEM_PADRAO for o in origens.values())} importados).")
+    if st.session_state.get("doc") not in documentos:
+        st.session_state["doc"] = next(iter(documentos))
+
+    with st.expander(f"📚 Base de documentos ({len(documentos)})"):
+        st.dataframe(pd.DataFrame({"ID": list(documentos), "Origem": [origens[d] for d in documentos],
+                                   "Texto": list(documentos.values())}), hide_index=True, width="stretch")
 
     fase1, fase2, fase3, bonus = st.tabs([
         "1️⃣ Pipeline de Pré-processamento", "2️⃣ Índice Invertido", "3️⃣ Busca TF-IDF", "⭐ Bônus: Similaridade de Cosseno",
     ])
 
     with fase1:
-        doc_id = st.selectbox("Documento para inspecionar", list(DOCUMENTOS), format_func=lambda d: f"Doc {d}", key="doc")
-        for nome, tokens in etapas(DOCUMENTOS[doc_id], usar_stopwords, usar_stemming).items():
+        doc_id = st.selectbox("Documento para inspecionar", list(documentos), format_func=lambda d: f"Doc {d} · {origens[d]}", key="doc")
+        for nome, tokens in etapas(documentos[doc_id], usar_stopwords, usar_stemming).items():
             with st.expander(nome, expanded=True):
                 st.write(tokens)
-        vocab = vocabulario(DOCUMENTOS, usar_stopwords, usar_stemming)
+        vocab = vocabulario(documentos, usar_stopwords, usar_stemming)
         st.metric("Termos no vocabulário", len(vocab))
         st.write(", ".join(vocab))
         st.caption("Ligue/desligue stopwords e stemming na barra lateral para ver o vocabulário mudar.")
 
     with fase2:
-        docs_tokens = {d: preprocessar(t, usar_stopwords, usar_stemming) for d, t in DOCUMENTOS.items()}
+        docs_tokens = {d: preprocessar(t, usar_stopwords, usar_stemming) for d, t in documentos.items()}
         indice = indice_invertido(docs_tokens)
         st.markdown(f"**{len(indice)} termos** mapeados para os documentos em que aparecem (Termo → [IDs de Docs]).")
         st.json(indice)
 
     with fase3:
         consulta = st.text_input("Digite sua consulta:", value="irrigação da soja", key="consulta")
-        r = ranquear(consulta, DOCUMENTOS, usar_stopwords, usar_stemming)
+        r = ranquear(consulta, documentos, usar_stopwords, usar_stemming)
         if not r["termos"]:
             st.warning("A consulta não tem termos depois do pré-processamento.")
         else:
-            st.markdown("**IDF dos termos da consulta** — IDF(t) = log10(N / df(t)), N = 5")
+            st.markdown(f"**IDF dos termos da consulta** — IDF(t) = log10(N / df(t)), N = {len(documentos)}")
             st.dataframe(pd.DataFrame([
                 {"Termo": t, "df(t)": r["df"][t], "IDF(t)": round(r["idf"][t], 4)} for t in r["termos"]
             ]), hide_index=True)
@@ -245,7 +413,7 @@ def main():
             st.dataframe(pd.DataFrame(tabela), hide_index=True)
             if vencedor:
                 st.success(f"🏆 Documento vencedor: Doc {vencedor['doc']} (TF-IDF acumulado = {vencedor['score']:.4f}) — "
-                           f"{DOCUMENTOS[vencedor['doc']]}")
+                           f"{resumir(documentos[vencedor['doc']])} ({origens[vencedor['doc']]})")
             else:
                 st.warning("Nenhum documento contém os termos da consulta.")
 
@@ -258,7 +426,7 @@ def main():
             "em consultas de várias palavras."
         )
         st.caption(f"Consulta (a mesma da aba 3): “{consulta}”")
-        rc = ranquear_cosseno(consulta, DOCUMENTOS, usar_stopwords, usar_stemming)
+        rc = ranquear_cosseno(consulta, documentos, usar_stopwords, usar_stemming)
         if not rc["vetor_consulta"]:
             st.warning("Nenhum termo da consulta existe no vocabulário dos documentos: o vetor da consulta é nulo.")
         else:
@@ -276,7 +444,7 @@ def main():
             ]), hide_index=True)
             if melhor["cosseno"] > 0:
                 st.success(f"🏆 Mais similar à consulta: Doc {melhor['doc']} (cosseno = {melhor['cosseno']:.4f}) — "
-                           f"{DOCUMENTOS[melhor['doc']]}")
+                           f"{resumir(documentos[melhor['doc']])} ({origens[melhor['doc']]})")
 
 
 if __name__ == "__main__":

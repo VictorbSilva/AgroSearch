@@ -87,10 +87,15 @@ def markdown_para_html(md: str, base: Path) -> str:
     return "\n".join(partes)
 
 
-def gerar_pdf(md_path, pdf_path, tamanho_fonte: int = 10) -> int:
-    """Converte o Markdown em PDF e devolve o número de páginas."""
+def gerar_pdf(md_path, pdf_path, tamanho_fonte: int = 10, data=None) -> int:
+    """Converte o Markdown em PDF e devolve o número de páginas.
+
+    `data` (datetime com fuso) fixa a data de criação gravada no PDF; com ela, o mesmo Markdown gera sempre o mesmo arquivo.
+    """
     md_path, pdf_path = Path(md_path), Path(pdf_path)
     pdf = FPDF(format="A4")
+    if data is not None:
+        pdf.set_creation_date(data)
     pdf.set_margins(18, 15, 18)
     pdf.set_auto_page_break(True, margin=15)
     familia, latin1 = _fonte(pdf)
