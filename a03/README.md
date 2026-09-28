@@ -32,7 +32,6 @@ Exemplos com consultas de várias palavras:
 ```bash
 pip install -r requirements.txt
 streamlit run agrosearch_app.py
-python -m pytest -q      # 33 testes: os do app da a02 + os do cosseno (tests/test_cosseno.py)
 ```
 
 ## Suposições

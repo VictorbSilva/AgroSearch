@@ -22,14 +22,12 @@ O app integra três fases:
 | `agrosearch_app.py` | O app, num único arquivo. Usa só a biblioteca padrão, `pandas` e `streamlit`. |
 | `relatorio.pdf` | Relatório técnico em 2 páginas: arquitetura, fórmulas, exemplo e divisão de tarefas. |
 | `RELATORIO.md`, `gerar_relatorio.py`, `relatorio_pdf.py` | Fonte do relatório, com os números calculados pelo próprio app, e o gerador do PDF. |
-| `tests/test_agrosearch.py` | 19 testes cobrindo pipeline, índice, fórmulas, ranking, a restrição de bibliotecas, a interface (`AppTest`) e o relatório. |
 
 ## Como rodar
 
 ```bash
 pip install -r requirements.txt
 streamlit run agrosearch_app.py
-python -m pytest -q
 python gerar_relatorio.py      # regera RELATORIO.md e relatorio.pdf
 ```
 
